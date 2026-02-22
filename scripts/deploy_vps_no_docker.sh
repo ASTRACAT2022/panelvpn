@@ -68,24 +68,15 @@ sync_database_credentials() {
   local db_pass="$2"
   local db_name="$3"
   sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_user="$db_user" -v db_pass="$db_pass" -v db_name="$db_name" <<'SQL'
-DO $$
-DECLARE
-  v_user text := :'db_user';
-  v_pass text := :'db_pass';
-  v_db text := :'db_name';
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_user) THEN
-    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', v_user, v_pass);
-  ELSE
-    EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L', v_user, v_pass);
-  END IF;
+SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'db_user', :'db_pass')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'db_user') \gexec
 
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = v_db) THEN
-    EXECUTE format('CREATE DATABASE %I OWNER %I', v_db, v_user);
-  END IF;
+SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'db_user', :'db_pass') \gexec
 
-  EXECUTE format('ALTER DATABASE %I OWNER TO %I', v_db, v_user);
-END $$;
+SELECT format('CREATE DATABASE %I OWNER %I', :'db_name', :'db_user')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db_name') \gexec
+
+SELECT format('ALTER DATABASE %I OWNER TO %I', :'db_name', :'db_user') \gexec
 SQL
 }
 

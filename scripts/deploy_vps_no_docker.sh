@@ -31,6 +31,18 @@ persist_env_value() {
   rm -f "$tmp"
 }
 
+read_env_value() {
+  local file="$1"
+  local key="$2"
+  awk -F= -v k="$key" '
+    $1 == k {
+      sub(/^[^=]*=/, "", $0)
+      print $0
+      exit
+    }
+  ' "$file"
+}
+
 wait_for_database_url() {
   local db_url="$1"
   local host port
@@ -58,6 +70,8 @@ parse_database_url_field() {
     let value = "";
     if (field === "username") value = decodeURIComponent(u.username || "");
     if (field === "password") value = decodeURIComponent(u.password || "");
+    if (field === "host") value = u.hostname || "127.0.0.1";
+    if (field === "port") value = u.port || "5432";
     if (field === "database") value = (u.pathname || "").replace(/^\//, "");
     process.stdout.write(value);
   ' "$db_url" "$field"
@@ -78,6 +92,15 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db_name') \gexec
 
 SELECT format('ALTER DATABASE %I OWNER TO %I', :'db_name', :'db_user') \gexec
 SQL
+}
+
+database_login_ok() {
+  local db_host="$1"
+  local db_port="$2"
+  local db_user="$3"
+  local db_pass="$4"
+  local db_name="$5"
+  PGPASSWORD="$db_pass" psql -h "$db_host" -p "$db_port" -U "$db_user" -d "$db_name" -c "SELECT 1" >/dev/null 2>&1
 }
 
 if [ "$(id -u)" -ne 0 ]; then echo "Run as root"; exit 1; fi
@@ -145,7 +168,7 @@ JWT_SECRET=${JWT_SECRET}
 PORT=${API_PORT}
 NODE_ENV=production
 REDIS_URL=redis://127.0.0.1:6379
-  EOF
+EOF
   chown panelvpn:panelvpn "$ENV_DIR/api.env"
   chmod 600 "$ENV_DIR/api.env"
 fi
@@ -167,18 +190,35 @@ else
 fi
 cd "$APP_DIR/apps/api"
 sudo -u panelvpn npx prisma generate
-. "$ENV_DIR/api.env"
+DATABASE_URL=$(read_env_value "$ENV_DIR/api.env" "DATABASE_URL")
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL is missing in $ENV_DIR/api.env"
+  exit 1
+fi
 DATABASE_URL=$(normalize_local_database_url "$DATABASE_URL")
 persist_env_value "$ENV_DIR/api.env" "DATABASE_URL" "$DATABASE_URL"
 wait_for_database_url "$DATABASE_URL"
 DB_USER_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "username")
 DB_PASS_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "password")
 DB_NAME_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "database")
+DB_HOST_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "host")
+DB_PORT_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "port")
 if [ -z "$DB_USER_FROM_URL" ] || [ -z "$DB_PASS_FROM_URL" ] || [ -z "$DB_NAME_FROM_URL" ]; then
   echo "DATABASE_URL must include username, password, and database name."
   exit 1
 fi
 sync_database_credentials "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"
+if ! database_login_ok "$DB_HOST_FROM_URL" "$DB_PORT_FROM_URL" "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"; then
+  echo "Database credentials drift detected. Rotating DB password and updating api.env..."
+  DB_PASS_FROM_URL=$(openssl rand -hex 24)
+  sync_database_credentials "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"
+  DATABASE_URL="postgresql://${DB_USER_FROM_URL}:${DB_PASS_FROM_URL}@${DB_HOST_FROM_URL}:${DB_PORT_FROM_URL}/${DB_NAME_FROM_URL}?schema=public"
+  persist_env_value "$ENV_DIR/api.env" "DATABASE_URL" "$DATABASE_URL"
+  if ! database_login_ok "$DB_HOST_FROM_URL" "$DB_PORT_FROM_URL" "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"; then
+    echo "Database authentication still failing after password rotation."
+    exit 1
+  fi
+fi
 MIGRATE_ATTEMPTS=10
 for attempt in $(seq 1 "$MIGRATE_ATTEMPTS"); do
   if sudo -u panelvpn env DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy; then

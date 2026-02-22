@@ -1,0 +1,82 @@
+name: Docker Publish (multi-arch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: 'Docker Hub namespace (e.g. your-username or org)'
+        required: false
+        default: ''
+      tag:
+        description: 'Image tag to publish (default: latest)'
+        required: false
+        default: 'latest'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_NAMESPACE: ${{ inputs.namespace != '' && inputs.namespace || secrets.DOCKERHUB_NAMESPACE != '' && secrets.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
+      TAG: ${{ inputs.tag != '' && inputs.tag || 'latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Prepare matrix
+        id: matrix
+        run: |
+          echo 'components=["api","web","agent"]' >> $GITHUB_OUTPUT
+
+      - name: Build and push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: api-prod
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/panelvpn-api:${{ env.TAG }}
+            ${{ env.IMAGE_NAMESPACE }}/panelvpn-api:${{ github.sha }}
+
+      - name: Build and push Web
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: web-prod
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/panelvpn-web:${{ env.TAG }}
+            ${{ env.IMAGE_NAMESPACE }}/panelvpn-web:${{ github.sha }}
+
+      - name: Build and push Agent
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: agent-prod
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/panelvpn-agent:${{ env.TAG }}
+            ${{ env.IMAGE_NAMESPACE }}/panelvpn-agent:${{ github.sha }}

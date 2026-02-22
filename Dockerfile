@@ -28,7 +28,7 @@ RUN apk add --no-cache dumb-init
 
 # Copy built application
 COPY --from=api-builder /app/apps/api/dist ./dist
-COPY --from=api-builder /app/apps/api/node_modules ./node_modules
+COPY --from=api-builder /app/node_modules ./node_modules
 COPY --from=api-builder /app/apps/api/package*.json ./
 COPY --from=api-builder /app/apps/api/prisma ./prisma
 

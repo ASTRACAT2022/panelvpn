@@ -65,6 +65,36 @@ cd apps/agent && go run .
 - **Default Admin**: admin@panelvpn.com / password
 - **Default User**: user@panelvpn.com / password
 
+## 🔁 Remnawave Migration
+
+- Import endpoint: `POST /subscriptions/import/remnawave`
+- Public subscription endpoint by old short id: `GET /subscriptions/short/:shortId`
+- Subscription output formats:
+  - `?format=base64` (default, compatibility mode for subscription clients)
+  - `?format=raw` (plain `ss://` lines)
+  - `?format=json` (API JSON config)
+
+Example import payload:
+
+```json
+{
+  "defaultClusterId": "your-cluster-id",
+  "users": [
+    {
+      "email": "user1@example.com",
+      "name": "User 1",
+      "subscriptions": [
+        {
+          "name": "Imported Sub",
+          "shortId": "abc123shortid",
+          "expiresAt": "2026-12-31T23:59:59.000Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## 📁 Project Structure
 
 ```

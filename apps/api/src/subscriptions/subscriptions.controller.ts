@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, Res } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Response } from 'express';
 
 @ApiTags('subscriptions')
 @Controller('subscriptions')
@@ -23,19 +24,42 @@ export class SubscriptionsController {
     return this.subscriptionsService.findAll();
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get subscription by ID' })
-  @ApiResponse({ status: 200, description: 'Subscription details.' })
-  @ApiResponse({ status: 404, description: 'Subscription not found.' })
-  findOne(@Param('id') id: string) {
-    return this.subscriptionsService.findOne(id);
-  }
-
   @Get('user/:userId')
   @ApiOperation({ summary: 'Get user subscriptions' })
   @ApiResponse({ status: 200, description: 'User subscriptions.' })
   getUserSubscriptions(@Param('userId') userId: string) {
     return this.subscriptionsService.getUserSubscriptions(userId);
+  }
+
+  @Get('short/:shortId')
+  @ApiOperation({ summary: 'Resolve subscription by short/public id (Remnawave compatible)' })
+  @ApiResponse({ status: 200, description: 'Subscription configuration.' })
+  @ApiResponse({ status: 404, description: 'Subscription not found.' })
+  async getByShortId(
+    @Param('shortId') shortId: string,
+    @Query('format') format: 'json' | 'raw' | 'base64' = 'base64',
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const config = await this.subscriptionsService.getSubscriptionConfigByPublicId(shortId);
+    if (format === 'json') {
+      return config;
+    }
+
+    const raw = this.subscriptionsService.toSubscriptionLinks(config).join('\n');
+    res.type('text/plain; charset=utf-8');
+
+    if (format === 'raw') {
+      return raw;
+    }
+
+    return Buffer.from(raw, 'utf8').toString('base64');
+  }
+
+  @Post('import/remnawave')
+  @ApiOperation({ summary: 'Import users and subscriptions from Remnawave export payload' })
+  @ApiResponse({ status: 201, description: 'Import result.' })
+  importFromRemnawave(@Body() payload: any) {
+    return this.subscriptionsService.importFromRemnawave(payload ?? {});
   }
 
   @Patch(':id')
@@ -57,5 +81,13 @@ export class SubscriptionsController {
   @ApiResponse({ status: 200, description: 'Subscription configuration.' })
   getConfig(@Param('subscriptionId') subscriptionId: string) {
     return this.subscriptionsService.getSubscriptionConfig(subscriptionId);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get subscription by ID' })
+  @ApiResponse({ status: 200, description: 'Subscription details.' })
+  @ApiResponse({ status: 404, description: 'Subscription not found.' })
+  findOne(@Param('id') id: string) {
+    return this.subscriptionsService.findOne(id);
   }
 }

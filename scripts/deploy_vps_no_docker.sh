@@ -386,6 +386,15 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
+    # Remnawave compatibility: preserve legacy short subscription links like /abc123xyz
+    location ~ ^/(?!api/)(?!_next/)(?!favicon\.ico$)(?!login$)(?!register$)(?!dashboard$)(?!nodes$)(?!clusters$)(?!monitoring$)(?!users$)(?!subscriptions$)(?!settings$)([A-Za-z0-9_-]{6,64})$ {
+        proxy_pass http://127.0.0.1:${API_PORT}/subscriptions/short/\$1;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
     location / {
         proxy_pass http://127.0.0.1:${WEB_PORT};
         proxy_http_version 1.1;

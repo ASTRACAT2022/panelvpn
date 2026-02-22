@@ -33,11 +33,25 @@ rsync -a --delete --exclude .git --exclude node_modules --exclude .next "$SRC_DI
 chown -R panelvpn:panelvpn "$APP_DIR"
 systemctl enable --now postgresql
 systemctl enable --now redis-server
+
+echo "Waiting for PostgreSQL to be ready on 127.0.0.1:5432..."
+for i in {1..30}; do
+  if sudo -u postgres psql -h 127.0.0.1 -p 5432 -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+    echo "PostgreSQL is ready"
+    break
+  fi
+  echo "PostgreSQL is not ready yet, retrying..."
+  sleep 2
+  if [ "$i" -eq 30 ]; then
+    echo "PostgreSQL did not become ready in time. Check: systemctl status postgresql"
+    exit 1
+  fi
+done
 if [ ! -f "$ENV_DIR/api.env" ]; then
   DB_PASS=$(openssl rand -hex 16)
   JWT_SECRET=$(openssl rand -hex 24)
   cat > "$ENV_DIR/api.env" <<EOF
-DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}?schema=public
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}?schema=public
 JWT_SECRET=${JWT_SECRET}
 PORT=${API_PORT}
 NODE_ENV=production

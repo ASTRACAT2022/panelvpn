@@ -120,6 +120,21 @@ parse_database_url_field() {
   ' "$db_url" "$field"
 }
 
+build_database_url() {
+  local db_user="$1"
+  local db_pass="$2"
+  local db_host="$3"
+  local db_port="$4"
+  local db_name="$5"
+  node -e '
+    const [user, pass, host, port, db] = process.argv.slice(1);
+    const encUser = encodeURIComponent(user);
+    const encPass = encodeURIComponent(pass);
+    const encDb = encodeURIComponent(db);
+    process.stdout.write(`postgresql://${encUser}:${encPass}@${host}:${port}/${encDb}?schema=public`);
+  ' "$db_user" "$db_pass" "$db_host" "$db_port" "$db_name"
+}
+
 sync_database_credentials() {
   local db_user="$1"
   local db_pass="$2"
@@ -181,11 +196,15 @@ rsync -a --delete --exclude .git --exclude node_modules --exclude .next "$SRC_DI
 chown -R panelvpn:panelvpn "$APP_DIR"
 systemctl enable --now postgresql
 systemctl enable --now redis-server
+SYSTEM_PG_PORT=$(sudo -u postgres psql -Atqc "SHOW port" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$SYSTEM_PG_PORT" ]; then
+  SYSTEM_PG_PORT=5432
+fi
 
-echo "Waiting for PostgreSQL to be ready on 127.0.0.1:5432..."
+echo "Waiting for PostgreSQL to be ready on 127.0.0.1:${SYSTEM_PG_PORT}..."
 for i in {1..30}; do
   if command -v pg_isready >/dev/null 2>&1; then
-    if pg_isready -h 127.0.0.1 -p 5432 -d postgres >/dev/null 2>&1; then
+    if pg_isready -h 127.0.0.1 -p "$SYSTEM_PG_PORT" -d postgres >/dev/null 2>&1; then
       echo "PostgreSQL is ready"
       break
     fi
@@ -206,7 +225,7 @@ if [ ! -f "$ENV_DIR/api.env" ]; then
   DB_PASS=$(openssl rand -hex 16)
   JWT_SECRET=$(openssl rand -hex 24)
   cat > "$ENV_DIR/api.env" <<EOF
-DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}?schema=public
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@127.0.0.1:${SYSTEM_PG_PORT}/${DB_NAME}?schema=public
 JWT_SECRET=${JWT_SECRET}
 PORT=${API_PORT}
 NODE_ENV=production
@@ -236,25 +255,28 @@ if [ -z "$DATABASE_URL" ]; then
 fi
 DATABASE_URL=$(normalize_local_database_url "$DATABASE_URL")
 persist_env_value "$ENV_DIR/api.env" "DATABASE_URL" "$DATABASE_URL"
-wait_for_database_url "$DATABASE_URL"
 DB_USER_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "username")
 DB_PASS_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "password")
 DB_NAME_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "database")
-DB_HOST_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "host")
-DB_PORT_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "port")
-if [ -z "$DB_USER_FROM_URL" ] || [ -z "$DB_PASS_FROM_URL" ] || [ -z "$DB_NAME_FROM_URL" ]; then
-  echo "DATABASE_URL must include username, password, and database name."
-  exit 1
-fi
+[ -n "$DB_USER_FROM_URL" ] || DB_USER_FROM_URL="$DB_USER"
+[ -n "$DB_NAME_FROM_URL" ] || DB_NAME_FROM_URL="$DB_NAME"
+[ -n "$DB_PASS_FROM_URL" ] || DB_PASS_FROM_URL=$(openssl rand -hex 24)
+DB_HOST_FROM_URL="127.0.0.1"
+DB_PORT_FROM_URL="$SYSTEM_PG_PORT"
+DATABASE_URL=$(build_database_url "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_HOST_FROM_URL" "$DB_PORT_FROM_URL" "$DB_NAME_FROM_URL")
+persist_env_value "$ENV_DIR/api.env" "DATABASE_URL" "$DATABASE_URL"
+wait_for_database_url "$DATABASE_URL"
 sync_database_credentials "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"
 if ! database_login_ok "$DB_HOST_FROM_URL" "$DB_PORT_FROM_URL" "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"; then
   echo "Database credentials drift detected. Rotating DB password and updating api.env..."
   DB_PASS_FROM_URL=$(openssl rand -hex 24)
   sync_database_credentials "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"
-  DATABASE_URL="postgresql://${DB_USER_FROM_URL}:${DB_PASS_FROM_URL}@${DB_HOST_FROM_URL}:${DB_PORT_FROM_URL}/${DB_NAME_FROM_URL}?schema=public"
+  DATABASE_URL=$(build_database_url "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_HOST_FROM_URL" "$DB_PORT_FROM_URL" "$DB_NAME_FROM_URL")
   persist_env_value "$ENV_DIR/api.env" "DATABASE_URL" "$DATABASE_URL"
   if ! database_login_ok "$DB_HOST_FROM_URL" "$DB_PORT_FROM_URL" "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"; then
     echo "Database authentication still failing after password rotation."
+    echo "Diagnostics: direct TCP login attempt follows."
+    PGPASSWORD="$DB_PASS_FROM_URL" psql -h "$DB_HOST_FROM_URL" -p "$DB_PORT_FROM_URL" -U "$DB_USER_FROM_URL" -d "$DB_NAME_FROM_URL" -c "SELECT current_user, current_database();" || true
     exit 1
   fi
 fi

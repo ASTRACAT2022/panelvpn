@@ -8,10 +8,61 @@ API_PORT=${API_PORT:-3001}
 WEB_PORT=${WEB_PORT:-3000}
 DB_USER=${DB_USER:-panel}
 DB_NAME=${DB_NAME:-panelvpn}
+
+normalize_local_database_url() {
+  local url="$1"
+  # Avoid localhost/IPv6 resolution edge cases during early boot.
+  echo "$url" | sed -E 's/@localhost([:/?]|$)/@127.0.0.1\1/g'
+}
+
+persist_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local tmp
+  tmp=$(mktemp)
+  awk -v k="$key" -v v="$value" '
+    BEGIN { updated=0 }
+    $0 ~ "^" k "=" { print k "=" v; updated=1; next }
+    { print }
+    END { if (!updated) print k "=" v }
+  ' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+wait_for_database_url() {
+  local db_url="$1"
+  local host port
+  host=$(node -e 'const u = new URL(process.argv[1]); process.stdout.write(u.hostname || "127.0.0.1")' "$db_url")
+  port=$(node -e 'const u = new URL(process.argv[1]); process.stdout.write(u.port || "5432")' "$db_url")
+  echo "Waiting for PostgreSQL to be reachable on ${host}:${port}..."
+  for i in {1..30}; do
+    if pg_isready -h "$host" -p "$port" >/dev/null 2>&1; then
+      echo "PostgreSQL is reachable on ${host}:${port}"
+      return 0
+    fi
+    echo "PostgreSQL is not reachable yet on ${host}:${port}, retrying..."
+    sleep 2
+  done
+  echo "PostgreSQL did not become reachable on ${host}:${port} in time."
+  return 1
+}
+
 if [ "$(id -u)" -ne 0 ]; then echo "Run as root"; exit 1; fi
 apt-get update -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y nginx postgresql redis-server curl git build-essential rsync
-if ! command -v node >/dev/null || ! node -v | grep -q '^v18'; then curl -fsSL https://deb.nodesource.com/setup_18.x | bash - ; apt-get install -y nodejs; fi
+NODE_MAJOR=0
+if command -v node >/dev/null 2>&1; then
+  NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+fi
+case "$NODE_MAJOR" in
+  ''|*[!0-9]*) NODE_MAJOR=0 ;;
+esac
+if [ "$NODE_MAJOR" -lt 18 ]; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+fi
 GO_VERSION=1.21.10
 if ! command -v go >/dev/null || ! go version | grep -q "go$GO_VERSION"; then
   ARCH=$(uname -m)
@@ -88,7 +139,21 @@ fi
 cd "$APP_DIR/apps/api"
 sudo -u panelvpn npx prisma generate
 . "$ENV_DIR/api.env"
-sudo -u panelvpn env DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy
+DATABASE_URL=$(normalize_local_database_url "$DATABASE_URL")
+persist_env_value "$ENV_DIR/api.env" "DATABASE_URL" "$DATABASE_URL"
+wait_for_database_url "$DATABASE_URL"
+MIGRATE_ATTEMPTS=10
+for attempt in $(seq 1 "$MIGRATE_ATTEMPTS"); do
+  if sudo -u panelvpn env DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy; then
+    break
+  fi
+  if [ "$attempt" -eq "$MIGRATE_ATTEMPTS" ]; then
+    echo "Prisma migrate failed after ${MIGRATE_ATTEMPTS} attempts."
+    exit 1
+  fi
+  echo "Prisma migrate failed (attempt ${attempt}/${MIGRATE_ATTEMPTS}), retrying in 3 seconds..."
+  sleep 3
+done
 cd "$APP_DIR"
 sudo -u panelvpn npm run build --workspaces --if-present
 export PATH=/usr/local/go/bin:$PATH

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -36,8 +37,11 @@ async function main() {
       create: {
         id: 'node-1',
         name: 'US-West-1',
-        ip: '192.168.1.100',
+        hostname: 'us-west-1.panelvpn.local',
+        ipAddress: '192.168.1.100',
         port: 443,
+        apiPort: 8081,
+        token: randomUUID(),
         status: 'ONLINE',
         clusterId: testCluster.id,
       },
@@ -48,8 +52,11 @@ async function main() {
       create: {
         id: 'node-2',
         name: 'US-East-1',
-        ip: '192.168.1.101',
+        hostname: 'us-east-1.panelvpn.local',
+        ipAddress: '192.168.1.101',
         port: 443,
+        apiPort: 8081,
+        token: randomUUID(),
         status: 'ONLINE',
         clusterId: testCluster.id,
       },
@@ -60,8 +67,11 @@ async function main() {
       create: {
         id: 'node-3',
         name: 'EU-Central-1',
-        ip: '192.168.1.102',
+        hostname: 'eu-central-1.panelvpn.local',
+        ipAddress: '192.168.1.102',
         port: 443,
+        apiPort: 8081,
+        token: randomUUID(),
         status: 'OFFLINE',
         clusterId: testCluster.id,
       },
@@ -78,7 +88,7 @@ async function main() {
       password: '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
       role: 'USER',
       status: 'ACTIVE',
-      clusters: {
+      cluster: {
         connect: { id: testCluster.id },
       },
     },

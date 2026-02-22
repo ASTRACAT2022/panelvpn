@@ -1,6 +1,7 @@
 export class CreateUserDto {
   email: string;
-  password?: string; // Optional if created via external auth, but typically required
+  name?: string;
+  password?: string; // Optional for admin-created placeholder users
   role?: 'ADMIN' | 'USER';
   trafficLimit?: number;
   expireDate?: Date;

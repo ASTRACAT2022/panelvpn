@@ -84,7 +84,7 @@ export class SubscriptionsService {
       servers: subscription.cluster.nodes.map(node => ({
         name: `${subscription.cluster.name} - ${node.name}`,
         type: 'shadowsocks',
-        server: node.ip,
+        server: node.ipAddress,
         port: node.port || 8388,
         method: 'aes-256-gcm',
         password: this.generatePassword(),

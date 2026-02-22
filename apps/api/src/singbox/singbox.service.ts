@@ -91,7 +91,7 @@ export class SingboxService {
       sub.cluster.nodes.map(node => ({
         name: `${sub.name} - ${node.name}`,
         type: 'shadowsocks',
-        server: node.ip,
+        server: node.ipAddress,
         port: node.port || 8388,
         method: 'aes-256-gcm',
         password: this.generatePassword(),

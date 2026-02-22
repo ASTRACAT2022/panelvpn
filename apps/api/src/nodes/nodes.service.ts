@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateNodeDto } from './dto/create-node.dto';
 import { UpdateNodeDto } from './dto/update-node.dto';
@@ -8,8 +10,26 @@ export class NodesService {
   constructor(private prisma: PrismaService) {}
 
   create(createNodeDto: CreateNodeDto) {
+    const ipAddress = createNodeDto.ipAddress ?? createNodeDto.ip;
+    if (!ipAddress) {
+      throw new Error('ipAddress is required');
+    }
+
+    const data: Prisma.NodeUncheckedCreateInput = {
+      name: createNodeDto.name,
+      hostname: createNodeDto.hostname ?? `${createNodeDto.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+      ipAddress,
+      port: createNodeDto.port ?? 443,
+      apiPort: createNodeDto.apiPort ?? 8081,
+      token: createNodeDto.token ?? randomUUID(),
+      status: createNodeDto.status,
+      country: createNodeDto.country,
+      city: createNodeDto.city,
+      clusterId: createNodeDto.clusterId,
+    };
+
     return this.prisma.node.create({
-      data: createNodeDto,
+      data,
     });
   }
 
@@ -31,9 +51,25 @@ export class NodesService {
   }
 
   update(id: string, updateNodeDto: UpdateNodeDto) {
+    const data: Prisma.NodeUncheckedUpdateInput = {
+      name: updateNodeDto.name,
+      hostname: updateNodeDto.hostname,
+      port: updateNodeDto.port,
+      apiPort: updateNodeDto.apiPort,
+      token: updateNodeDto.token,
+      status: updateNodeDto.status,
+      country: updateNodeDto.country,
+      city: updateNodeDto.city,
+      clusterId: updateNodeDto.clusterId,
+    };
+    const ipAddress = updateNodeDto.ipAddress ?? updateNodeDto.ip;
+    if (ipAddress) {
+      data.ipAddress = ipAddress;
+    }
+
     return this.prisma.node.update({
       where: { id },
-      data: updateNodeDto,
+      data,
     });
   }
 

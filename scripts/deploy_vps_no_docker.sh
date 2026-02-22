@@ -294,8 +294,10 @@ for attempt in $(seq 1 "$MIGRATE_ATTEMPTS"); do
   echo "Prisma migrate failed (attempt ${attempt}/${MIGRATE_ATTEMPTS}), retrying in 3 seconds..."
   sleep 3
 done
-cd "$APP_DIR"
-sudo -u panelvpn npm run build --workspaces --if-present
+cd "$APP_DIR/apps/api"
+sudo -u panelvpn npm run build
+cd "$APP_DIR/apps/web"
+sudo -u panelvpn env -u npm_config_workspace -u npm_config_workspaces npm run build
 export PATH=/usr/local/go/bin:$PATH
 cd "$APP_DIR/apps/agent"
 sudo -u panelvpn /usr/local/go/bin/go build -o "$BIN_DIR/panelvpn-agent" ./...
@@ -327,9 +329,9 @@ After=network.target panelvpn-api.service
 Type=simple
 User=panelvpn
 Group=panelvpn
-WorkingDirectory=$APP_DIR
+WorkingDirectory=$APP_DIR/apps/web
 EnvironmentFile=$ENV_DIR/web.env
-ExecStart=/usr/bin/npm start --workspace web
+ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=3
 

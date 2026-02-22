@@ -9,7 +9,7 @@ COPY package*.json /app/
 COPY apps/api/prisma ./prisma/
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm install
 
 # Copy source code
 COPY apps/api/src ./src
@@ -39,7 +39,7 @@ EXPOSE 3001
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main"]
+CMD ["node", "dist/main.js"]
 
 # Build stage for Web
 FROM node:18-alpine AS web-builder
@@ -51,7 +51,7 @@ COPY apps/web/package*.json ./
 COPY package*.json /app/
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY apps/web ./
@@ -66,11 +66,10 @@ WORKDIR /app
 
 # Install dependencies for production
 COPY apps/web/package*.json ./
-RUN npm ci --only=production
+RUN npm install --production
 
 # Copy built application
 COPY --from=web-builder /app/apps/web/.next ./.next
-COPY --from=web-builder /app/apps/web/public ./public
 COPY --from=web-builder /app/apps/web/package*.json ./
 
 EXPOSE 3000
@@ -86,7 +85,8 @@ WORKDIR /app/apps/agent
 RUN apk add --no-cache git
 
 # Copy go mod files
-COPY apps/agent/go.mod apps/agent/go.sum ./
+COPY apps/agent/go.mod ./
+COPY apps/agent/go.sum* ./
 RUN go mod download
 
 # Copy source code

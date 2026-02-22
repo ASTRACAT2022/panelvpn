@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-export function middleware(request) {
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Skip API routes and static files

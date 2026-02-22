@@ -59,7 +59,11 @@ EOF
   chmod 600 "$ENV_DIR/web.env"
 fi
 cd "$APP_DIR"
-sudo -u panelvpn npm ci
+if [ -f package-lock.json ]; then
+  sudo -u panelvpn npm ci
+else
+  sudo -u panelvpn npm install
+fi
 cd "$APP_DIR/apps/api"
 sudo -u panelvpn npx prisma generate
 . "$ENV_DIR/api.env"

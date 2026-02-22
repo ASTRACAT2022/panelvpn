@@ -43,6 +43,49 @@ read_env_value() {
   ' "$file"
 }
 
+ensure_api_env_file() {
+  local file="$1"
+  local database_url="$2"
+  local api_port="$3"
+  local jwt_secret redis_url node_env
+  jwt_secret=$(read_env_value "$file" "JWT_SECRET")
+  redis_url=$(read_env_value "$file" "REDIS_URL")
+  node_env=$(read_env_value "$file" "NODE_ENV")
+  [ -n "$jwt_secret" ] || jwt_secret=$(openssl rand -hex 24)
+  [ -n "$redis_url" ] || redis_url="redis://127.0.0.1:6379"
+  [ -n "$node_env" ] || node_env="production"
+  cat > "$file" <<EOF
+DATABASE_URL=${database_url}
+JWT_SECRET=${jwt_secret}
+PORT=${api_port}
+NODE_ENV=${node_env}
+REDIS_URL=${redis_url}
+EOF
+  chown panelvpn:panelvpn "$file"
+  chmod 600 "$file"
+}
+
+ensure_web_env_file() {
+  local file="$1"
+  local web_port="$2"
+  local api_port="$3"
+  local node_env public_api_url api_url
+  node_env=$(read_env_value "$file" "NODE_ENV")
+  public_api_url=$(read_env_value "$file" "NEXT_PUBLIC_API_URL")
+  api_url=$(read_env_value "$file" "API_URL")
+  [ -n "$node_env" ] || node_env="production"
+  [ -n "$public_api_url" ] || public_api_url="http://127.0.0.1/api"
+  [ -n "$api_url" ] || api_url="http://127.0.0.1:${api_port}"
+  cat > "$file" <<EOF
+NODE_ENV=${node_env}
+PORT=${web_port}
+NEXT_PUBLIC_API_URL=${public_api_url}
+API_URL=${api_url}
+EOF
+  chown panelvpn:panelvpn "$file"
+  chmod 600 "$file"
+}
+
 wait_for_database_url() {
   local db_url="$1"
   local host port
@@ -169,8 +212,6 @@ PORT=${API_PORT}
 NODE_ENV=production
 REDIS_URL=redis://127.0.0.1:6379
 EOF
-  chown panelvpn:panelvpn "$ENV_DIR/api.env"
-  chmod 600 "$ENV_DIR/api.env"
 fi
 if [ ! -f "$ENV_DIR/web.env" ]; then
   cat > "$ENV_DIR/web.env" <<EOF
@@ -179,8 +220,6 @@ PORT=${WEB_PORT}
 NEXT_PUBLIC_API_URL=http://127.0.0.1/api
 API_URL=http://127.0.0.1:${API_PORT}
 EOF
-  chown panelvpn:panelvpn "$ENV_DIR/web.env"
-  chmod 600 "$ENV_DIR/web.env"
 fi
 cd "$APP_DIR"
 if [ -f package-lock.json ]; then
@@ -219,6 +258,8 @@ if ! database_login_ok "$DB_HOST_FROM_URL" "$DB_PORT_FROM_URL" "$DB_USER_FROM_UR
     exit 1
   fi
 fi
+ensure_api_env_file "$ENV_DIR/api.env" "$DATABASE_URL" "$API_PORT"
+ensure_web_env_file "$ENV_DIR/web.env" "$WEB_PORT" "$API_PORT"
 MIGRATE_ATTEMPTS=10
 for attempt in $(seq 1 "$MIGRATE_ATTEMPTS"); do
   if sudo -u panelvpn env DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy; then

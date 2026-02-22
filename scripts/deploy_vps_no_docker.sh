@@ -49,6 +49,46 @@ wait_for_database_url() {
   return 1
 }
 
+parse_database_url_field() {
+  local db_url="$1"
+  local field="$2"
+  node -e '
+    const [url, field] = process.argv.slice(1);
+    const u = new URL(url);
+    let value = "";
+    if (field === "username") value = decodeURIComponent(u.username || "");
+    if (field === "password") value = decodeURIComponent(u.password || "");
+    if (field === "database") value = (u.pathname || "").replace(/^\//, "");
+    process.stdout.write(value);
+  ' "$db_url" "$field"
+}
+
+sync_database_credentials() {
+  local db_user="$1"
+  local db_pass="$2"
+  local db_name="$3"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_user="$db_user" -v db_pass="$db_pass" -v db_name="$db_name" <<'SQL'
+DO $$
+DECLARE
+  v_user text := :'db_user';
+  v_pass text := :'db_pass';
+  v_db text := :'db_name';
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_user) THEN
+    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', v_user, v_pass);
+  ELSE
+    EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L', v_user, v_pass);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = v_db) THEN
+    EXECUTE format('CREATE DATABASE %I OWNER %I', v_db, v_user);
+  END IF;
+
+  EXECUTE format('ALTER DATABASE %I OWNER TO %I', v_db, v_user);
+END $$;
+SQL
+}
+
 if [ "$(id -u)" -ne 0 ]; then echo "Run as root"; exit 1; fi
 apt-get update -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y nginx postgresql redis-server curl git build-essential rsync
@@ -114,11 +154,9 @@ JWT_SECRET=${JWT_SECRET}
 PORT=${API_PORT}
 NODE_ENV=production
 REDIS_URL=redis://127.0.0.1:6379
-EOF
+  EOF
   chown panelvpn:panelvpn "$ENV_DIR/api.env"
   chmod 600 "$ENV_DIR/api.env"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
 fi
 if [ ! -f "$ENV_DIR/web.env" ]; then
   cat > "$ENV_DIR/web.env" <<EOF
@@ -142,6 +180,14 @@ sudo -u panelvpn npx prisma generate
 DATABASE_URL=$(normalize_local_database_url "$DATABASE_URL")
 persist_env_value "$ENV_DIR/api.env" "DATABASE_URL" "$DATABASE_URL"
 wait_for_database_url "$DATABASE_URL"
+DB_USER_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "username")
+DB_PASS_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "password")
+DB_NAME_FROM_URL=$(parse_database_url_field "$DATABASE_URL" "database")
+if [ -z "$DB_USER_FROM_URL" ] || [ -z "$DB_PASS_FROM_URL" ] || [ -z "$DB_NAME_FROM_URL" ]; then
+  echo "DATABASE_URL must include username, password, and database name."
+  exit 1
+fi
+sync_database_credentials "$DB_USER_FROM_URL" "$DB_PASS_FROM_URL" "$DB_NAME_FROM_URL"
 MIGRATE_ATTEMPTS=10
 for attempt in $(seq 1 "$MIGRATE_ATTEMPTS"); do
   if sudo -u panelvpn env DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy; then

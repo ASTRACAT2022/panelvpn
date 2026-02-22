@@ -36,9 +36,16 @@ systemctl enable --now redis-server
 
 echo "Waiting for PostgreSQL to be ready on 127.0.0.1:5432..."
 for i in {1..30}; do
-  if sudo -u postgres psql -h 127.0.0.1 -p 5432 -d postgres -c "SELECT 1" >/dev/null 2>&1; then
-    echo "PostgreSQL is ready"
-    break
+  if command -v pg_isready >/dev/null 2>&1; then
+    if pg_isready -h 127.0.0.1 -p 5432 -d postgres >/dev/null 2>&1; then
+      echo "PostgreSQL is ready"
+      break
+    fi
+  else
+    if sudo -u postgres psql -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+      echo "PostgreSQL is ready (checked via psql)"
+      break
+    fi
   fi
   echo "PostgreSQL is not ready yet, retrying..."
   sleep 2

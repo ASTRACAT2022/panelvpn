@@ -319,7 +319,7 @@ sudo -u panelvpn env -i \
   npm run build
 export PATH=/usr/local/go/bin:$PATH
 cd "$APP_DIR/apps/agent"
-sudo -u panelvpn /usr/local/go/bin/go build -o "$BIN_DIR/panelvpn-agent" ./...
+sudo -u panelvpn /usr/local/go/bin/go build -o "$BIN_DIR/panelvpn-agent" .
 install -d -o panelvpn -g panelvpn /var/log/panelvpn
 cat > /etc/systemd/system/panelvpn-api.service <<EOF
 [Unit]

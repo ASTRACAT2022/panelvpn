@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: panelvpn-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: panel
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: panelvpn
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - panelvpn
+
+  redis:
+    image: redis:7-alpine
+    container_name: panelvpn-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - panelvpn
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-prod
+    container_name: panelvpn-api
+    restart: always
+    environment:
+      DATABASE_URL: "postgresql://panel:password@postgres:5432/panelvpn?schema=public"
+      JWT_SECRET: "super-secret-jwt-key-change-me"
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - panelvpn
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web-prod
+    container_name: panelvpn-web
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:3001"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - panelvpn
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: agent-prod
+    container_name: panelvpn-agent
+    restart: always
+    volumes:
+      - ./apps/agent/agent-config.json:/root/agent-config.json
+      - ./config/sing-box:/etc/sing-box
+    depends_on:
+      - api
+    networks:
+      - panelvpn
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  panelvpn:
+    driver: bridge

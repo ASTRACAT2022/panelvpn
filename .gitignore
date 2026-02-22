@@ -1,0 +1,47 @@
+node_modules/
+.env
+.env.local
+.env.production
+.env.staging
+*.log
+logs/
+dist/
+build/
+.next/
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.iml
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# SSL certificates
+ssl/*.pem
+ssl/*.key
+ssl/*.crt
+
+# Database
+*.db
+*.sqlite
+
+# Docker volumes
+data/
+postgres-data/
+redis-data/
+
+# Temporary files
+tmp/
+temp/

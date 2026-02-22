@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  role      Role     @default(USER)
+  status    UserStatus @default(ACTIVE)
+
+  // Traffic and subscription details
+  trafficLimit BigInt   @default(0)
+  usedTraffic  BigInt   @default(0)
+  expireDate   DateTime?
+
+  // Relations
+  clusterId String?
+  cluster   Cluster? @relation(fields: [clusterId], references: [id])
+  subscriptions Subscription[]
+  monitoringData Monitoring[]
+}
+
+model Node {
+  id        String   @id @default(uuid())
+  name      String
+  hostname  String   @unique
+  ipAddress String   @map("ip")
+  port      Int      @default(443)
+  apiPort   Int      @default(8081)
+  token     String   @unique // For initial handshake
+  cert      String?  // mTLS certificate
+  status    NodeStatus @default(OFFLINE)
+  version   String?
+  lastHeartbeat DateTime?
+  config    Json?
+
+  // Location and capacity
+  country   String?
+  city      String?
+  maxConnections Int @default(100)
+  currentConnections Int @default(0)
+  bandwidthLimit BigInt @default(0)
+  bandwidthUsed BigInt @default(0)
+
+  // Relations
+  clusterId String?
+  cluster   Cluster? @relation(fields: [clusterId], references: [id])
+  monitoringData Monitoring[]
+
+  @@map("nodes")
+}
+
+model Cluster {
+  id    String @id @default(uuid())
+  name  String @unique
+  type  ClusterType @default(LOAD_BALANCE)
+  description String?
+  apiEndpoint String?
+  status ClusterStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  nodes Node[]
+  users User[]
+  subscriptions Subscription[]
+
+  @@map("clusters")
+}
+
+model Subscription {
+  id        String   @id @default(uuid())
+  name      String
+  uuid      String   @unique @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime?
+  status    SubscriptionStatus @default(ACTIVE)
+
+  // Connection and bandwidth limits
+  maxConnections Int @default(1)
+  currentConnections Int @default(0)
+  bandwidthLimit BigInt @default(0)
+  bandwidthUsed BigInt @default(0)
+
+  // Relations
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  clusterId String
+  cluster   Cluster  @relation(fields: [clusterId], references: [id])
+
+  @@unique([name, userId])
+  @@map("subscriptions")
+}
+
+model Monitoring {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  upload    BigInt?
+  download  BigInt?
+  cpuUsage  Float?
+  memoryUsage Float?
+  diskUsage Float?
+  networkIn BigInt?
+  networkOut BigInt?
+  activeConnections Int?
+  uptime    Int?     // seconds
+  status    MonitoringStatus @default(HEALTHY)
+
+  // Optional relations
+  nodeId String?
+  node   Node?    @relation(fields: [nodeId], references: [id])
+  userId String?
+  user   User?    @relation(fields: [userId], references: [id])
+
+  @@map("monitoring")
+}
+
+// Enums
+enum Role {
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  EXPIRED
+}
+
+enum NodeStatus {
+  ONLINE
+  OFFLINE
+  WARNING
+  MAINTENANCE
+}
+
+enum ClusterType {
+  LOAD_BALANCE
+  FAILOVER
+  GEO_BASED
+}
+
+enum ClusterStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
+enum MonitoringStatus {
+  HEALTHY
+  WARNING
+  CRITICAL
+  UNKNOWN
+}

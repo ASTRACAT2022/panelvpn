@@ -295,9 +295,28 @@ for attempt in $(seq 1 "$MIGRATE_ATTEMPTS"); do
   sleep 3
 done
 cd "$APP_DIR/apps/api"
-sudo -u panelvpn npm run build
+PANELVPN_HOME=$(getent passwd panelvpn | cut -d: -f6)
+[ -n "$PANELVPN_HOME" ] || PANELVPN_HOME="$APP_DIR"
+sudo -u panelvpn env -i \
+  HOME="$PANELVPN_HOME" \
+  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  npm run build
 cd "$APP_DIR/apps/web"
-sudo -u panelvpn env -u npm_config_workspace -u npm_config_workspaces npm run build
+WEB_NODE_ENV=$(read_env_value "$ENV_DIR/web.env" "NODE_ENV")
+WEB_NEXT_PUBLIC_API_URL=$(read_env_value "$ENV_DIR/web.env" "NEXT_PUBLIC_API_URL")
+WEB_API_URL=$(read_env_value "$ENV_DIR/web.env" "API_URL")
+[ -n "$WEB_NODE_ENV" ] || WEB_NODE_ENV="production"
+[ -n "$WEB_NEXT_PUBLIC_API_URL" ] || WEB_NEXT_PUBLIC_API_URL="http://127.0.0.1/api"
+[ -n "$WEB_API_URL" ] || WEB_API_URL="http://127.0.0.1:${API_PORT}"
+sudo -u panelvpn env -i \
+  HOME="$PANELVPN_HOME" \
+  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  NODE_ENV="$WEB_NODE_ENV" \
+  NEXT_PUBLIC_API_URL="$WEB_NEXT_PUBLIC_API_URL" \
+  API_URL="$WEB_API_URL" \
+  NEXT_TELEMETRY_DISABLED=1 \
+  NEXT_IGNORE_INCORRECT_LOCKFILE=1 \
+  npm run build
 export PATH=/usr/local/go/bin:$PATH
 cd "$APP_DIR/apps/agent"
 sudo -u panelvpn /usr/local/go/bin/go build -o "$BIN_DIR/panelvpn-agent" ./...
